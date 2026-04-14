@@ -92,7 +92,6 @@ export default function DeliveryCreateScreen({ navigation }) {
         setOrders(nextOrders);
         setCustomers(nextCustomers);
         setWarehouses(nextWarehouses);
-        if (nextWarehouses.length) setSelectedWarehouse(nextWarehouses[0]);
       } catch (error) {
         console.error('Error loading delivery creation data', error);
         Alert.alert('Error', 'Failed to load delivery setup data.');
@@ -200,10 +199,6 @@ export default function DeliveryCreateScreen({ navigation }) {
       Alert.alert('Missing sales order', 'Select a sales order or switch to manual mode.');
       return;
     }
-    if (sourceType === 'manual' && !selectedWarehouse?._id) {
-      Alert.alert('Warehouse required', 'Select a warehouse for manual delivery.');
-      return;
-    }
     if (!scheduledDate.trim()) {
       Alert.alert('Missing scheduled date', 'Enter the scheduled delivery date.');
       return;
@@ -248,7 +243,7 @@ export default function DeliveryCreateScreen({ navigation }) {
       if (sourceType === 'sale-order') {
         payload.saleOrder = selectedOrder._id;
       } else {
-        payload.warehouse = selectedWarehouse._id;
+        if (selectedWarehouse?._id) payload.warehouse = selectedWarehouse._id;
         if (customerMode === 'existing') payload.customer = selectedCustomer._id;
         else payload.manualCustomer = {
           name: manualName.trim(),
@@ -373,11 +368,11 @@ export default function DeliveryCreateScreen({ navigation }) {
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Warehouse</Text>
+              <Text style={styles.sectionTitle}>Warehouse Optional</Text>
               <TouchableOpacity style={styles.selectRow} onPress={() => setWarehouseModal(true)}>
                 <Warehouse size={18} color={colors.primary} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.selectLabel}>{selectedWarehouse ? selectedWarehouse.name : 'Tap to choose warehouse'}</Text>
+                  <Text style={styles.selectLabel}>{selectedWarehouse ? selectedWarehouse.name : 'Tap to choose warehouse (optional)'}</Text>
                   {selectedWarehouse?.code ? <Text style={styles.selectHint}>{selectedWarehouse.code}</Text> : null}
                 </View>
                 <ChevronRight size={18} color={colors.textSoft} />
@@ -479,6 +474,10 @@ export default function DeliveryCreateScreen({ navigation }) {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Warehouses</Text>
+            <TouchableOpacity style={styles.modalRow} onPress={() => { setSelectedWarehouse(null); setWarehouseModal(false); }}>
+              <Text style={styles.modalRowTitle}>No warehouse</Text>
+              <Text style={styles.selectHint}>Leave this delivery note unassigned</Text>
+            </TouchableOpacity>
             <FlatList
               data={warehouses}
               keyExtractor={(item) => item._id}

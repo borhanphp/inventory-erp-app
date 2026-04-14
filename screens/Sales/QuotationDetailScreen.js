@@ -30,7 +30,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import axiosInstance from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
-import { formatCurrency, useCurrency } from '../../utils/currency';
+import { useCurrency } from '../../utils/currency';
 
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -39,6 +39,8 @@ const escapeHtml = (value) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+
+const formatPlainAmount = (amount, decimals = 2) => (Number(amount) || 0).toFixed(decimals);
 
 export default function QuotationDetailScreen({ route, navigation }) {
   const { id } = route.params;
@@ -95,24 +97,37 @@ export default function QuotationDetailScreen({ route, navigation }) {
     try {
       let fullOrg = {};
       try {
-        const { data: orgData } = await axiosInstance.get('/organizations/me');
+        const { data: orgData } = await axiosInstance.get('/profile/organization');
         if (orgData?.success) {
-          fullOrg = orgData.data.organization;
+          fullOrg = orgData.data;
         }
       } catch (e) {
-        console.log('Could not fetch rich org data, falling back to local user context', e);
+        console.log('Could not fetch org data, falling back to local user context', e);
       }
 
       const org = fullOrg._id ? fullOrg : (user?.organization || {});
       const companyPhone = org.phone || user?.phone || '';
       const addrObj = org.address || {};
       const companyAddress = [addrObj.street, addrObj.city, addrObj.state, addrObj.zipCode].filter(Boolean).join(', ');
-      
+
       const taxDetails = [];
       if (org.taxId) taxDetails.push(`EIN: ${org.taxId}`);
       if (org.vatNumber) taxDetails.push(`VAT: ${org.vatNumber}`);
       if (org.registrationNumber) taxDetails.push(`Reg NO: ${org.registrationNumber}`);
       const companyTax = taxDetails.join(' | ');
+
+      const customerName = quotation.customer?.name;
+      const customerPhone = quotation.customer?.phone;
+      const customerAddress =
+        quotation.customer?.address?.street
+          ? [
+              quotation.customer.address.street,
+              quotation.customer.address.city,
+              quotation.customer.address.state,
+              quotation.customer.address.postalCode,
+              quotation.customer.address.country,
+            ].filter(Boolean).join(', ')
+          : '';
       const currencyCode = org.settings?.currency || quotation.currency?.code || 'USD';
 
       const html = `
@@ -120,71 +135,211 @@ export default function QuotationDetailScreen({ route, navigation }) {
           <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #334155; }
-              .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; }
-              .header-left h1 { margin: 0; color: #0f172a; font-size: 24px; }
-              .header-right { text-align: right; }
-              .header-right h2 { margin: 0; color: #4f46e5; font-size: 28px; letter-spacing: 2px;}
-              .customer-box { background: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 30px; width: 50%; }
-              .customer-box strong { color: #4f46e5; font-size: 12px; letter-spacing: 1px;}
-              .customer-name { font-size: 18px; font-weight: bold; margin-top: 8px; color: #0f172a;}
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th { background-color: #4f46e5; color: white; padding: 12px; text-align: left; font-size: 14px;}
-              td { padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 14px;}
-              .totals-wrapper { display: flex; justify-content: flex-end; margin-top: 30px;}
-              .totals { width: 300px; background: #f8fafc; padding: 20px; border-radius: 8px;}
-              .total-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px;}
-              .grand-total { font-size: 18px; font-weight: bold; color: #4f46e5; border-top: 2px solid #6366f1; padding-top: 12px; margin-top: 8px;}
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #000; margin: 0; }
+              .top-header { text-align: center; margin-bottom: 20px; position: relative; }
+              .logo-img { position: absolute; left: 0; top: 0; width: 80px; height: 80px; object-fit: contain; }
+              .logo-placeholder { position: absolute; left: 0; top: 0; width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; border: 2px solid #000; color: #000; }
+              .company-name { font-size: 26px; font-weight: bold; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+              .company-address { font-size: 13px; margin-bottom: 3px; }
+              .company-tax-info { font-size: 13px; margin-bottom: 3px; }
+              .company-contact { font-size: 13px; }
+              .title-row { margin-top: 35px; margin-bottom: 15px; position: relative; display: flex; justify-content: center; align-items: center; }
+              .invoice-title { font-size: 22px; font-weight: bold; text-transform: uppercase; }
+              .trn-title { position: absolute; right: 0; font-size: 18px; font-weight: bold; }
+              .boxes-container { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 30px; width: 100%; }
+              .customer-box { flex: 1; border: 1px solid #000; border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.6; }
+              .customer-box .bold-name { font-weight: bold; font-size: 14px; display: block; margin-bottom: 4px; }
+              .customer-box .bold-text { font-weight: bold; }
+              .details-box { flex: 1; border: 1px solid #000; border-radius: 8px; overflow: hidden; }
+              .details-table { width: 100%; border-collapse: collapse; height: 100%; font-size: 13px; }
+              .details-table td { padding: 8px 12px; border-bottom: 1px solid #000; }
+              .details-table tr:last-child td { border-bottom: none; }
+              .details-table td:first-child { border-right: 1px solid #000; font-weight: bold; width: 40%; }
+              .items-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+              .items-table th { border: 1px solid #000; padding: 4px; text-align: center; font-size: 11px; font-weight: bold; }
+              .items-table td { border-left: 1px solid #000; border-right: 1px solid #000; padding: 6px; font-size: 11px; text-align: center; }
+              .items-table td:nth-child(2) { text-align: left; }
+              .items-table tr.last-item-row td { border-bottom: 1px solid #000; }
+              .items-table tr.empty-row td { height: 100px; border-bottom: 1px solid #000; }
+              .items-table tr:last-child td { border-bottom: 1px solid #000; }
+              .bottom-section { display: flex; width: 100%; border: 1px solid #000; margin-top: 0; border-top: none; }
+              .bottom-left { flex: 1; padding: 10px; font-size: 11px; border-right: 1px solid #000; display: flex; flex-direction: column; justify-content: space-between; }
+              .bottom-right { width: 320px; }
+              .totals-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+              .totals-table td { padding: 6px 10px; border-bottom: 1px solid #000; }
+              .totals-table td:first-child { text-align: right; border-right: 1px solid #000; width: 65%; }
+              .totals-table td:last-child { text-align: right; font-weight: bold; }
+              .word-amount { padding: 6px 10px; font-size: 10px; border-top: 1px solid #000; }
+              .signatures { display: flex; justify-content: space-between; margin-top: 40px; font-size: 13px; font-weight: bold; text-align: center; }
+              .sig-block { flex: 1; }
+              .sig-line { text-decoration: underline; margin-bottom: 6px; }
+              .sig-meta { font-size: 10px; font-weight: normal; color: #555; text-align: left; padding-left: 10%; }
             </style>
           </head>
           <body>
-            <div class="header">
-              <div class="header-left">
-                <h1>${org.name || user?.organizationName || user?.name || 'Company Details'}</h1>
-                ${user?.email ? `<div style="color: #64748b; font-size: 13px; margin-top: 6px;">${user.email}</div>` : ''}
-                ${companyPhone ? `<div style="color: #64748b; font-size: 13px; margin-top: 4px;">${companyPhone}</div>` : ''}
-                ${companyAddress ? `<div style="color: #64748b; font-size: 13px; margin-top: 4px;">${companyAddress}</div>` : ''}
-                ${companyTax ? `<div style="color: #64748b; font-size: 13px; margin-top: 4px; font-weight: 600;">${companyTax}</div>` : ''}
+            <div class="top-header">
+              ${org.logo ? `<img src="${org.logo}" alt="Company Logo" class="logo-img" />` : `<div class="logo-placeholder">LOGO</div>`}
+              <div class="company-name">${escapeHtml(org.name || user?.organizationName || user?.name || 'Company Details')}</div>
+              ${companyAddress ? `<div class="company-address">${companyAddress}</div>` : ''}
+              ${org.registrationNumber ? `<div class="company-tax-info">Tax Regn No. ${org.registrationNumber}</div>` : ''}
+              <div class="company-contact">
+                ${companyPhone ? `Tel : ${companyPhone}` : ''}
+                ${companyPhone && user?.email ? ', &nbsp;&nbsp;' : ''}
+                ${user?.email ? `Email : ${user.email}` : ''}
               </div>
-              <div class="header-right">
-                <h2>QUOTATION</h2>
-                <div style="color: #64748b; font-size: 14px; margin-top: 8px;">#${escapeHtml(quotation.quotationNumber)}</div>
-              </div>
-            </div>
-            
-            <div class="customer-box">
-              <strong>BILL TO</strong>
-              <div class="customer-name">${escapeHtml(quotation.customer?.name || 'Customer')}</div>
-              <div style="color: #64748b; font-size: 14px; margin-top: 4px;">${escapeHtml(quotation.customer?.phone || '')}</div>
             </div>
 
-            <table>
+            <div class="title-row">
+              <div class="invoice-title">QUOTATION</div>
+              ${org.taxId || org.vatNumber ? `<div class="trn-title">TRN : ${org.taxId || org.vatNumber}</div>` : ''}
+            </div>
+
+            <div class="boxes-container">
+              <div class="customer-box">
+                <div class="bold-name">M/s ${escapeHtml(customerName || 'Customer')}</div>
+                ${customerAddress ? `<div class="bold-text">${escapeHtml(customerAddress)}</div>` : ''}
+                <div class="bold-text" style="margin-top: 8px;">
+                  ${customerPhone ? `Tel : ${escapeHtml(customerPhone)} &nbsp;&nbsp;&nbsp;` : ''}
+                  ${quotation.customer?.email ? `Email : ${escapeHtml(quotation.customer.email)}` : ''}
+                </div>
+                ${quotation.customer?.taxNumber ? `<div class="bold-text" style="margin-top: 4px;">TRN : ${escapeHtml(quotation.customer.taxNumber)}</div>` : ''}
+              </div>
+
+              <div class="details-box">
+                <table class="details-table">
+                  <tr>
+                    <td>Quotation No :</td>
+                    <td>${escapeHtml(quotation.quotationNumber || '')}</td>
+                  </tr>
+                  <tr>
+                    <td>Date :</td>
+                    <td>${new Date(quotation.createdAt).toLocaleDateString()}</td>
+                  </tr>
+                  <tr>
+                    <td>Valid Until :</td>
+                    <td>${quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString() : ''}</td>
+                  </tr>
+                  <tr>
+                    <td>Status :</td>
+                    <td>${(quotation.status || 'draft').toUpperCase()}</td>
+                  </tr>
+                  <tr>
+                    <td>Currency</td>
+                    <td>${currencyCode}</td>
+                  </tr>
+                </table>
+              </div>
+            </div>
+
+            <div style="font-weight: bold; font-size: 12px; margin-bottom: 2px;">Payment Terms : ${escapeHtml(quotation.terms || 'As per agreement')}</div>
+            <table class="items-table">
               <tr>
-                <th>Item Description</th>
-                <th>Qty</th>
-                <th>Unit Price</th>
-                <th style="text-align: right;">Total</th>
+                <th rowspan="2">S.N</th>
+                <th rowspan="2">Description</th>
+                <th rowspan="2">Unit</th>
+                <th rowspan="2">Qty</th>
+                <th rowspan="2">Rate</th>
+                <th rowspan="2">Value<br/>before<br/>Discount</th>
+                <th rowspan="2">Disc.</th>
+                <th rowspan="2">Gross<br/>Value<br/>before VAT</th>
+                <th colspan="2" style="text-align: center;">VAT</th>
+                <th rowspan="2">Net Value</th>
               </tr>
-              ${quotation.items.map(item => `
-                <tr>
-                  <td><strong>${escapeHtml(item.product?.name || item.productName || 'Item')}</strong></td>
-                  <td>${escapeHtml(item.quantity)}</td>
-                  <td>${formatCurrency(item.unitPrice || 0, currencyCode)}</td>
-                  <td style="text-align: right;">${formatCurrency((item.quantity * item.unitPrice) || 0, currencyCode)}</td>
+              <tr>
+                <th style="border-top: none;">%</th>
+                <th style="border-top: none; border-left: 1px solid #000;">Amount</th>
+              </tr>
+              ${quotation.items?.map((item, index) => {
+                const valueBeforeDiscount = (Number(item.quantity || 0) * Number(item.unitPrice || 0)).toFixed(2);
+                const lineDiscount = '0.00';
+                const grossBeforeVat = valueBeforeDiscount;
+                const taxPercent = '';
+                const taxAmount = '0.00';
+                const netValue = (Number(item.totalPrice) || Number(grossBeforeVat) || 0).toFixed(2);
+
+                return `
+                <tr ${index === quotation.items.length - 1 ? 'class="last-item-row"' : ''}>
+                  <td>${index + 1}</td>
+                  <td width="40%"><strong>${escapeHtml(item.description || item.product?.name || item.productName || 'Item')}</strong></td>
+                  <td>${escapeHtml(item.unit || '')}</td>
+                  <td>${Number(item.quantity || 0).toFixed(2)}</td>
+                  <td>${formatPlainAmount(item.unitPrice || 0)}</td>
+                  <td>${formatPlainAmount(valueBeforeDiscount)}</td>
+                  <td>${Number(lineDiscount) > 0 ? formatPlainAmount(lineDiscount) : ''}</td>
+                  <td>${formatPlainAmount(grossBeforeVat)}</td>
+                  <td>${taxPercent}</td>
+                  <td>${Number(taxAmount) > 0 ? formatPlainAmount(taxAmount) : ''}</td>
+                  <td>${formatPlainAmount(netValue)}</td>
                 </tr>
-              `).join('')}
+                `;
+              }).join('')}
+              <tr class="empty-row"><td colspan="11"></td></tr>
             </table>
 
-            <div class="totals-wrapper">
-              <div class="totals">
-                <div class="total-row"><span style="color: #64748b;">Subtotal:</span><strong style="color: #0f172a;">${formatCurrency(quotation.subtotal || 0, currencyCode)}</strong></div>
-                <div class="total-row"><span style="color: #64748b;">Tax:</span><strong style="color: #0f172a;">${formatCurrency(quotation.taxAmount || 0, currencyCode)}</strong></div>
-                <div class="total-row grand-total"><span>Total Estimate:</span><span>${formatCurrency(quotation.totalAmount || 0, currencyCode)}</span></div>
+            <div class="bottom-section">
+              <div class="bottom-left">
+                <div>
+                  All cheques and drafts to be made payable to<br/>
+                  <strong style="font-style: italic;">${org.name || user?.organizationName || user?.name || 'Your Company'}</strong>,<br/>
+                  ${org.bankDetails?.bankName
+                    ? `<strong style="font-style: italic;">${escapeHtml(org.bankDetails.bankName)}${org.bankDetails.accountName ? ', ' + escapeHtml(org.bankDetails.accountName) : ''}</strong><br/>`
+                    : '<strong style="font-style: italic;">BANK NAME HERE</strong><br/>'}
+                  ${org.bankDetails?.iban
+                    ? `<strong style="font-style: italic;">IBAN: ${escapeHtml(org.bankDetails.iban)}</strong><br/>`
+                    : '<strong style="font-style: italic;">IBAN: -</strong><br/>'}
+                  ${org.bankDetails?.swiftCode
+                    ? `<strong style="font-style: italic;">SWIFT: ${escapeHtml(org.bankDetails.swiftCode)}</strong>`
+                    : '<strong style="font-style: italic;">SWIFT: -</strong>'}
+                </div>
+                <div style="margin-top: 20px;">
+                  DELIVERY : Ex- store, ${org.address?.city || 'Your City'}<br/><br/>
+                  ORIGIN OF GOODS :
+                </div>
+              </div>
+              <div class="bottom-right">
+                <table class="totals-table">
+                  <tr>
+                    <td>Value before Discount :</td>
+                    <td> ${formatPlainAmount(quotation.subtotal || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td><span style="font-style: italic; font-weight: normal;">Less Discount :</span></td>
+                    <td> ${formatPlainAmount(quotation.discountAmount || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td><span style="font-style: italic; font-weight: normal;">Additional charges :</span></td>
+                    <td> 0.00</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Sub Total :</strong></td>
+                    <td><strong> ${formatPlainAmount((quotation.subtotal || 0) - (quotation.discountAmount || 0))}</strong></td>
+                  </tr>
+                  <tr>
+                    <td>VAT ${quotation.taxRate || '0.00'} % :</td>
+                    <td> ${formatPlainAmount(quotation.taxAmount || 0)}</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Grand Total :</strong></td>
+                    <td><strong> ${formatPlainAmount(quotation.totalAmount || 0)}</strong></td>
+                  </tr>
+                </table>
+                <div class="word-amount">
+                  ${currencyCode} : ${formatPlainAmount(quotation.totalAmount || 0)}
+                </div>
               </div>
             </div>
-            
-            <div style="margin-top: 50px; text-align: center; color: #94a3b8; font-size: 12px;">
-              Valid until ${new Date(quotation.validUntil).toLocaleDateString()}
+
+            <div class="signatures">
+              <div class="sig-block">
+                <div class="sig-line">(Prepared By)</div>
+                <div class="sig-meta">ADMIN &nbsp;&nbsp; ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</div>
+              </div>
+              <div class="sig-block">
+                <div class="sig-line">(Approved By)</div>
+              </div>
+              <div class="sig-block">
+                <div class="sig-line">(Received By)</div>
+              </div>
             </div>
           </body>
         </html>
