@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "mobile-erp",
-    "slug": "mobile-erp",
+    "name": "Zeeventory",
+    "slug": "zeeventory",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,11 +16,14 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.zeeventory.mobile",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "favicon": "./assets/favicon.png"
