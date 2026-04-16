@@ -157,18 +157,22 @@ export default function QuotationCreateScreen({ navigation }) {
   };
 
   const handleSubmit = async () => {
-    if (!customerName.trim() || !customerPhone.trim()) {
+    if (customerMode === 'existing' && !selectedCustomer) {
+      Alert.alert('Validation Error', 'Please select a customer or switch to Custom Customer.');
+      return;
+    }
+    if (customerMode === 'custom' && (!customerName.trim() || !customerPhone.trim())) {
       Alert.alert('Validation Error', 'Customer Name and Phone are required.');
       return;
     }
 
-    if (!isProbablyValidEmail(customerEmail)) {
+    if (customerMode === 'custom' && customerEmail && !isProbablyValidEmail(customerEmail)) {
       Alert.alert('Validation Error', 'Please enter a valid email address, or leave email blank.');
       return;
     }
 
     if (items.length === 0) {
-      Alert.alert('Validation Error', 'At least one item is required.');
+      Alert.alert('Validation Error', 'At least one line item is required.');
       return;
     }
 
@@ -180,50 +184,7 @@ export default function QuotationCreateScreen({ navigation }) {
 
     setIsSubmitting(true);
 
-    let customerId = null;
-    let createdCustomerId = null; // track only if WE created it (for rollback)
-
     try {
-      // 1. Check if a customer with this phone already exists — reuse them
-      try {
-        const searchRes = await axiosInstance.get('/customers', {
-          params: { search: customerPhone.trim(), limit: 5 }
-        });
-        const existing = (searchRes.data.data || []).find(
-          c => c.phone === customerPhone.trim()
-        );
-        if (existing) {
-          customerId = existing._id;
-        }
-      } catch (_) {
-        // Search failed — proceed to create
-      }
-
-      // 2. Create the customer only if not found
-      if (!customerId) {
-        const customerRes = await axiosInstance.post(
-          '/customers',
-          buildCustomerPayload({
-            name: customerName,
-            phone: customerPhone,
-            email: customerEmail,
-            alternatePhone: customerAltPhone,
-            company: customerCompany,
-            type: customerType,
-            taxNumber: customerTaxNumber,
-            notes: customerNotes,
-            street: addrStreet,
-            city: addrCity,
-            state: addrState,
-            postalCode: addrPostal,
-            country: addrCountry,
-          })
-        );
-        customerId = customerRes.data.data._id;
-        createdCustomerId = customerId; // mark for rollback if quotation fails
-      }
-
-      // 3. Format Quotation Items
       const formattedItems = items.map(i => ({
         productName: i.productName,
         quantity: parseFloat(i.quantity),
@@ -231,13 +192,10 @@ export default function QuotationCreateScreen({ navigation }) {
       }));
 
       const totals = calculateTotals();
-
-      // Calculate Valid Date
       const vDate = new Date();
       vDate.setDate(vDate.getDate() + (parseInt(validDays) || 30));
 
-      const quotationPayload = {
-        customer: customerId,
+      const payload = {
         validUntil: vDate.toISOString(),
         items: formattedItems,
         subtotal: totals.subtotal,
@@ -247,25 +205,37 @@ export default function QuotationCreateScreen({ navigation }) {
         discountValue: 0,
         discountAmount: 0,
         totalAmount: totals.totalAmount,
-        status: 'draft'
+        status: 'draft',
+        ...(customerMode === 'existing' && selectedCustomer
+          ? {
+              isCustomCustomer: false,
+              customer: selectedCustomer._id,
+            }
+          : {
+              isCustomCustomer: true,
+              customCustomer: {
+                name: customerName,
+                phone: customerPhone,
+                email: customerEmail,
+                taxId: customerTaxNumber,
+                address: {
+                  street: addrStreet,
+                  city: addrCity,
+                  state: addrState,
+                  zipCode: addrPostal,
+                  country: addrCountry,
+                },
+              },
+            })
       };
 
-      // 4. Create Quotation
-      const { data } = await axiosInstance.post('/quotations', quotationPayload);
+      const { data } = await axiosInstance.post('/quotations', payload);
 
       if (data.success) {
         Alert.alert('Success', 'Quotation created successfully');
         navigation.goBack();
       }
     } catch (error) {
-      // Only delete the customer if WE just created it (not a reused one)
-      if (createdCustomerId) {
-        try {
-          await axiosInstance.delete(`/customers/${createdCustomerId}`);
-        } catch (cleanupError) {
-          console.error('Failed to clean up temporary customer', cleanupError);
-        }
-      }
       console.error(error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to create quotation');
     } finally {
