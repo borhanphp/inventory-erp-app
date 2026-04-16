@@ -82,14 +82,16 @@ export default function QuotationDetailScreen({ route, navigation }) {
 
     Alert.alert('Delete Quotation', 'Are you sure you want to delete this quote?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-        try {
-          await axiosInstance.delete(`/quotations/${id}`);
-          navigation.goBack();
-        } catch(error) {
-          Alert.alert('Error', 'Failed to delete quotation');
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            await axiosInstance.delete(`/quotations/${id}`);
+            navigation.goBack();
+          } catch (error) {
+            Alert.alert('Error', 'Failed to delete quotation');
+          }
         }
-      }}
+      }
     ]);
   };
 
@@ -116,17 +118,18 @@ export default function QuotationDetailScreen({ route, navigation }) {
       if (org.registrationNumber) taxDetails.push(`Reg NO: ${org.registrationNumber}`);
       const companyTax = taxDetails.join(' | ');
 
-      const customerName = quotation.customer?.name;
-      const customerPhone = quotation.customer?.phone;
+      const customerObj = quotation.isCustomCustomer ? quotation.customCustomer : quotation.customer;
+      const customerName = customerObj?.name;
+      const customerPhone = customerObj?.phone;
       const customerAddress =
-        quotation.customer?.address?.street
+        customerObj?.address?.street
           ? [
-              quotation.customer.address.street,
-              quotation.customer.address.city,
-              quotation.customer.address.state,
-              quotation.customer.address.postalCode,
-              quotation.customer.address.country,
-            ].filter(Boolean).join(', ')
+            customerObj.address.street,
+            customerObj.address.city,
+            customerObj.address.state,
+            customerObj.address.postalCode || customerObj.address.zipCode,
+            customerObj.address.country,
+          ].filter(Boolean).join(', ')
           : '';
       const currencyCode = org.settings?.currency || quotation.currency?.code || 'USD';
 
@@ -190,7 +193,7 @@ export default function QuotationDetailScreen({ route, navigation }) {
             </div>
 
             <div class="title-row">
-              <div class="invoice-title">QUOTATION</div>
+              <div class="invoice-title">Tax QUOTATION</div>
               ${org.taxId || org.vatNumber ? `<div class="trn-title">TRN : ${org.taxId || org.vatNumber}</div>` : ''}
             </div>
 
@@ -200,9 +203,9 @@ export default function QuotationDetailScreen({ route, navigation }) {
                 ${customerAddress ? `<div class="bold-text">${escapeHtml(customerAddress)}</div>` : ''}
                 <div class="bold-text" style="margin-top: 8px;">
                   ${customerPhone ? `Tel : ${escapeHtml(customerPhone)} &nbsp;&nbsp;&nbsp;` : ''}
-                  ${quotation.customer?.email ? `Email : ${escapeHtml(quotation.customer.email)}` : ''}
+                  ${customerObj?.email ? `Email : ${escapeHtml(customerObj.email)}` : ''}
                 </div>
-                ${quotation.customer?.taxNumber ? `<div class="bold-text" style="margin-top: 4px;">TRN : ${escapeHtml(quotation.customer.taxNumber)}</div>` : ''}
+                ${customerObj?.taxNumber || customerObj?.taxId ? `<div class="bold-text" style="margin-top: 4px;">TRN : ${escapeHtml(customerObj.taxNumber || customerObj.taxId)}</div>` : ''}
               </div>
 
               <div class="details-box">
@@ -250,14 +253,14 @@ export default function QuotationDetailScreen({ route, navigation }) {
                 <th style="border-top: none; border-left: 1px solid #000;">Amount</th>
               </tr>
               ${quotation.items?.map((item, index) => {
-                const valueBeforeDiscount = (Number(item.quantity || 0) * Number(item.unitPrice || 0)).toFixed(2);
-                const lineDiscount = '0.00';
-                const grossBeforeVat = valueBeforeDiscount;
-                const taxPercent = '';
-                const taxAmount = '0.00';
-                const netValue = (Number(item.totalPrice) || Number(grossBeforeVat) || 0).toFixed(2);
+        const valueBeforeDiscount = (Number(item.quantity || 0) * Number(item.unitPrice || 0)).toFixed(2);
+        const lineDiscount = '0.00';
+        const grossBeforeVat = valueBeforeDiscount;
+        const taxPercent = '';
+        const taxAmount = '0.00';
+        const netValue = (Number(item.totalPrice) || Number(grossBeforeVat) || 0).toFixed(2);
 
-                return `
+        return `
                 <tr ${index === quotation.items.length - 1 ? 'class="last-item-row"' : ''}>
                   <td>${index + 1}</td>
                   <td width="40%"><strong>${escapeHtml(item.description || item.product?.name || item.productName || 'Item')}</strong></td>
@@ -272,7 +275,7 @@ export default function QuotationDetailScreen({ route, navigation }) {
                   <td>${formatPlainAmount(netValue)}</td>
                 </tr>
                 `;
-              }).join('')}
+      }).join('')}
               <tr class="empty-row"><td colspan="11"></td></tr>
             </table>
 
@@ -282,14 +285,14 @@ export default function QuotationDetailScreen({ route, navigation }) {
                   All cheques and drafts to be made payable to<br/>
                   <strong style="font-style: italic;">${org.name || user?.organizationName || user?.name || 'Your Company'}</strong>,<br/>
                   ${org.bankDetails?.bankName
-                    ? `<strong style="font-style: italic;">${escapeHtml(org.bankDetails.bankName)}${org.bankDetails.accountName ? ', ' + escapeHtml(org.bankDetails.accountName) : ''}</strong><br/>`
-                    : '<strong style="font-style: italic;">BANK NAME HERE</strong><br/>'}
+          ? `<strong style="font-style: italic;">${escapeHtml(org.bankDetails.bankName)}${org.bankDetails.accountName ? ', ' + escapeHtml(org.bankDetails.accountName) : ''}</strong><br/>`
+          : '<strong style="font-style: italic;">BANK NAME HERE</strong><br/>'}
                   ${org.bankDetails?.iban
-                    ? `<strong style="font-style: italic;">IBAN: ${escapeHtml(org.bankDetails.iban)}</strong><br/>`
-                    : '<strong style="font-style: italic;">IBAN: -</strong><br/>'}
+          ? `<strong style="font-style: italic;">IBAN: ${escapeHtml(org.bankDetails.iban)}</strong><br/>`
+          : '<strong style="font-style: italic;">IBAN: -</strong><br/>'}
                   ${org.bankDetails?.swiftCode
-                    ? `<strong style="font-style: italic;">SWIFT: ${escapeHtml(org.bankDetails.swiftCode)}</strong>`
-                    : '<strong style="font-style: italic;">SWIFT: -</strong>'}
+          ? `<strong style="font-style: italic;">SWIFT: ${escapeHtml(org.bankDetails.swiftCode)}</strong>`
+          : '<strong style="font-style: italic;">SWIFT: -</strong>'}
                 </div>
                 <div style="margin-top: 20px;">
                   DELIVERY : Ex- store, ${org.address?.city || 'Your City'}<br/><br/>
@@ -460,10 +463,10 @@ export default function QuotationDetailScreen({ route, navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        
+
         {/* ACTION PANEL */}
         <View style={styles.actionPanel}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: '#eef2ff' }]}
             onPress={handleDownloadPDF}
           >
@@ -517,9 +520,9 @@ export default function QuotationDetailScreen({ route, navigation }) {
               <Text style={[styles.actionText, { color: '#6d28d9' }]}>Open order</Text>
             </TouchableOpacity>
           )}
-          
+
           {(quotation.status === 'draft' || quotation.status === 'sent') && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.actionBtn, { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0' }]}
               onPress={() => navigation.navigate('QuotationEdit', { id: quotation._id })}
             >
@@ -529,7 +532,7 @@ export default function QuotationDetailScreen({ route, navigation }) {
           )}
 
           {['draft', 'sent'].includes(quotation.status) && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.actionBtn, { backgroundColor: '#fef2f2' }]}
               onPress={handleDelete}
             >
@@ -544,39 +547,35 @@ export default function QuotationDetailScreen({ route, navigation }) {
             <User size={18} color="#64748b" />
             <Text style={styles.cardTitle}>Customer Information</Text>
           </View>
-          <Text style={styles.cardValue}>{quotation.customer?.name || '—'}</Text>
-          {quotation.customer?.company ? (
-            <Text style={styles.cardSubValue}>{quotation.customer.company}</Text>
-          ) : null}
-          {quotation.customer?.type ? (
-            <Text style={styles.cardSubValue}>
-              {(quotation.customer.type === 'wholesale' ? 'Wholesale' : 'Retail') + ' customer'}
-            </Text>
-          ) : null}
-          {quotation.customer?.email ? <Text style={styles.cardSubValue}>{quotation.customer.email}</Text> : null}
-          {quotation.customer?.phone ? <Text style={styles.cardSubValue}>{quotation.customer.phone}</Text> : null}
-          {quotation.customer?.alternatePhone ? (
-            <Text style={styles.cardSubValue}>Alt: {quotation.customer.alternatePhone}</Text>
-          ) : null}
-          {quotation.customer?.taxNumber ? (
-            <Text style={styles.cardSubValue}>Tax / VAT: {quotation.customer.taxNumber}</Text>
-          ) : null}
-          {quotation.customer?.address &&
-          [quotation.customer.address.street, quotation.customer.address.city, quotation.customer.address.state]
-            .filter(Boolean).length ? (
-            <Text style={[styles.cardSubValue, { marginTop: 8 }]}>
-              {[
-                quotation.customer.address.street,
-                [quotation.customer.address.city, quotation.customer.address.state].filter(Boolean).join(', '),
-                [quotation.customer.address.postalCode, quotation.customer.address.country].filter(Boolean).join(' '),
-              ]
-                .filter(Boolean)
-                .join('\n')}
-            </Text>
-          ) : null}
-          {quotation.customer?.notes ? (
-            <Text style={[styles.cardSubValue, { marginTop: 8, fontStyle: 'italic' }]}>{quotation.customer.notes}</Text>
-          ) : null}
+          {(() => {
+            const cust = quotation.isCustomCustomer ? quotation.customCustomer : quotation.customer;
+            if (!cust) return <Text style={styles.cardValue}>—</Text>;
+            return (
+              <>
+                <Text style={styles.cardValue}>
+                  {cust.name || '—'} {quotation.isCustomCustomer ? <Text style={{fontSize: 12, color: '#64748b'}}>(Custom)</Text> : null}
+                </Text>
+                {cust.company ? <Text style={styles.cardSubValue}>{cust.company}</Text> : null}
+                {cust.type ? <Text style={styles.cardSubValue}>{(cust.type === 'wholesale' ? 'Wholesale' : 'Retail') + ' customer'}</Text> : null}
+                {cust.email ? <Text style={styles.cardSubValue}>{cust.email}</Text> : null}
+                {cust.phone ? <Text style={styles.cardSubValue}>{cust.phone}</Text> : null}
+                {cust.alternatePhone ? <Text style={styles.cardSubValue}>Alt: {cust.alternatePhone}</Text> : null}
+                {cust.taxNumber || cust.taxId ? <Text style={styles.cardSubValue}>Tax / VAT: {cust.taxNumber || cust.taxId}</Text> : null}
+                {cust.address && [cust.address.street, cust.address.city, cust.address.state].filter(Boolean).length ? (
+                  <Text style={[styles.cardSubValue, { marginTop: 8 }]}>
+                    {[
+                      cust.address.street,
+                      [cust.address.city, cust.address.state].filter(Boolean).join(', '),
+                      [cust.address.postalCode || cust.address.zipCode, cust.address.country].filter(Boolean).join(' '),
+                    ]
+                      .filter(Boolean)
+                      .join('\n')}
+                  </Text>
+                ) : null}
+                {cust.notes ? <Text style={[styles.cardSubValue, { marginTop: 8, fontStyle: 'italic' }]}>{cust.notes}</Text> : null}
+              </>
+            );
+          })()}
         </View>
 
         {/* Dates */}
@@ -633,24 +632,24 @@ export default function QuotationDetailScreen({ route, navigation }) {
             <Text style={styles.value}>{formatAmount(quotation.subtotal || 0)}</Text>
           </View>
           {(quotation.discountAmount || 0) > 0 && (
-             <View style={styles.row}>
-               <Text style={styles.label}>Discount:</Text>
-               <Text style={[styles.value, {color: '#10b981'}]}>-{formatAmount(quotation.discountAmount || 0, { absolute: true })}</Text>
-             </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Discount:</Text>
+              <Text style={[styles.value, { color: '#10b981' }]}>-{formatAmount(quotation.discountAmount || 0, { absolute: true })}</Text>
+            </View>
           )}
           {(quotation.taxAmount || 0) > 0 && (
-             <View style={styles.row}>
-               <Text style={styles.label}>Tax {quotation.taxRate ? `(${quotation.taxRate}%)` : ''}:</Text>
-               <Text style={styles.value}>{formatAmount(quotation.taxAmount || 0)}</Text>
-             </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Tax {quotation.taxRate ? `(${quotation.taxRate}%)` : ''}:</Text>
+              <Text style={styles.value}>{formatAmount(quotation.taxAmount || 0)}</Text>
+            </View>
           )}
           <View style={[styles.row, styles.totalRow]}>
             <Text style={styles.totalLabel}>Total Estimate:</Text>
             <Text style={styles.totalValue}>{formatAmount(quotation.totalAmount || 0)}</Text>
           </View>
         </View>
-        
-        <View style={{height: 40}}/>
+
+        <View style={{ height: 40 }} />
 
       </ScrollView>
 
@@ -720,7 +719,7 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   statusText: { fontSize: 12, fontWeight: '700' },
   scrollContent: { padding: 16, gap: 16 },
-  
+
   actionPanel: {
     flexDirection: 'row',
     flexWrap: 'wrap',
