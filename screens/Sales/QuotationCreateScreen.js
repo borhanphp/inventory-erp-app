@@ -189,6 +189,7 @@ export default function QuotationCreateScreen({ navigation }) {
         productName: i.productName,
         quantity: parseFloat(i.quantity),
         unitPrice: parseFloat(i.unitPrice),
+        totalPrice: parseFloat(i.quantity) * parseFloat(i.unitPrice)
       }));
 
       const totals = calculateTotals();
