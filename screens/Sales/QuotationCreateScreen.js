@@ -10,12 +10,94 @@ import {
   Alert 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Plus, Trash2, CheckCircle } from 'lucide-react-native';
+import { ArrowLeft, Plus, Trash2, CheckCircle, Search, X, Check, UserPlus, Users, ChevronDown, ChevronUp } from 'lucide-react-native';
 import axiosInstance from '../../api/axios';
 import { buildCustomerPayload, isProbablyValidEmail } from './quotationCustomerFormUtils';
 import { useCurrency } from '../../utils/currency';
 
+
+// ── Customer Picker Modal ─────────────────────────────────────────────────
+function CustomerPickerModal({ visible, onClose, onSelect }) {
+  const [query, React_useState] = React.useState('');
+  const [customers, setCustomers] = React.useState([]);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const debounceRef = React.useRef(null);
+
+  const fetchCustomers = React.useCallback(async (search = '') => {
+    setIsLoading(true);
+    try {
+      const { data } = await require('../../api/axios').default.get('/customers', {
+        params: { search, limit: 30, status: 'active' },
+      });
+      setCustomers(data?.data || []);
+    } catch {
+      setCustomers([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (visible) {
+      React_useState('');
+      fetchCustomers('');
+    }
+  }, [visible]);
+
+  const onQueryChange = (text) => {
+    React_useState(text);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchCustomers(text), 350);
+  };
+
+  const renderItem = ({ item }) => (
+    <TouchableOpacity style={styles.customerRow} onPress={() => { onSelect(item); onClose(); }} activeOpacity={0.7}>
+      <View style={styles.customerAvatar}>
+        <Text style={styles.customerAvatarText}>{item.name?.[0]?.toUpperCase() || '?'}</Text>
+      </View>
+      <View style={{ flex: 1, marginHorizontal: 12 }}>
+        <Text style={styles.customerRowName}>{item.name}</Text>
+        <Text style={styles.customerRowSub} numberOfLines={1}>
+          {[item.company, item.phone, item.email].filter(Boolean).join(' · ')}
+        </Text>
+      </View>
+      <Check size={16} color="#4f46e5" />
+    </TouchableOpacity>
+  );
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#f1f5f9', paddingTop: 40 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#fff' }}>
+          <Text style={{ flex: 1, fontSize: 18, fontWeight: 'bold' }}>Select Customer</Text>
+          <TouchableOpacity onPress={onClose}><X size={22} color="#64748b" /></TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#e2e8f0' }}>
+          <Search size={18} color="#94a3b8" style={{ marginRight: 8 }} />
+          <TextInput style={{ flex: 1, height: 40, fontSize: 16 }} placeholder="Search by name, phone, email..." value={query} onChangeText={onQueryChange} autoFocus placeholderTextColor="#94a3b8" />
+        </View>
+        {isLoading ? (
+          <View style={{ padding: 40, alignItems: 'center' }}><ActivityIndicator size="large" color="#4f46e5" /></View>
+        ) : (
+          <FlatList
+            data={customers}
+            keyExtractor={(item) => item._id}
+            renderItem={renderItem}
+            contentContainerStyle={{ padding: 16 }}
+          />
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 export default function QuotationCreateScreen({ navigation }) {
+  const [customerMode, setCustomerMode] = useState("custom");
+  const [showPicker, setShowPicker] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const handleSelectCustomer = (c) => { setSelectedCustomer(c); setCustomerName(c.name || ""); setCustomerPhone(c.phone || ""); };
+  const switchMode = (mode) => { setCustomerMode(mode); setSelectedCustomer(null); setCustomerName(""); setCustomerPhone(""); };
+
   const { currencySymbol, formatAmount } = useCurrency();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -73,8 +155,6 @@ export default function QuotationCreateScreen({ navigation }) {
   };
 
   const handleSubmit = async () => {
-    let createdCustomerId = null;
-
     if (!customerName.trim() || !customerPhone.trim()) {
       Alert.alert('Validation Error', 'Customer Name and Phone are required.');
       return;
@@ -98,31 +178,50 @@ export default function QuotationCreateScreen({ navigation }) {
 
     setIsSubmitting(true);
 
+    let customerId = null;
+    let createdCustomerId = null; // track only if WE created it (for rollback)
+
     try {
-      // 1. Create the customer with full details
-      const customerRes = await axiosInstance.post(
-        '/customers',
-        buildCustomerPayload({
-          name: customerName,
-          phone: customerPhone,
-          email: customerEmail,
-          alternatePhone: customerAltPhone,
-          company: customerCompany,
-          type: customerType,
-          taxNumber: customerTaxNumber,
-          notes: customerNotes,
-          street: addrStreet,
-          city: addrCity,
-          state: addrState,
-          postalCode: addrPostal,
-          country: addrCountry,
-        })
-      );
+      // 1. Check if a customer with this phone already exists — reuse them
+      try {
+        const searchRes = await axiosInstance.get('/customers', {
+          params: { search: customerPhone.trim(), limit: 5 }
+        });
+        const existing = (searchRes.data.data || []).find(
+          c => c.phone === customerPhone.trim()
+        );
+        if (existing) {
+          customerId = existing._id;
+        }
+      } catch (_) {
+        // Search failed — proceed to create
+      }
 
-      const customerId = customerRes.data.data._id;
-      createdCustomerId = customerId;
+      // 2. Create the customer only if not found
+      if (!customerId) {
+        const customerRes = await axiosInstance.post(
+          '/customers',
+          buildCustomerPayload({
+            name: customerName,
+            phone: customerPhone,
+            email: customerEmail,
+            alternatePhone: customerAltPhone,
+            company: customerCompany,
+            type: customerType,
+            taxNumber: customerTaxNumber,
+            notes: customerNotes,
+            street: addrStreet,
+            city: addrCity,
+            state: addrState,
+            postalCode: addrPostal,
+            country: addrCountry,
+          })
+        );
+        customerId = customerRes.data.data._id;
+        createdCustomerId = customerId; // mark for rollback if quotation fails
+      }
 
-      // 2. Format Quotation Items
+      // 3. Format Quotation Items
       const formattedItems = items.map(i => ({
         productName: i.productName,
         quantity: parseFloat(i.quantity),
@@ -149,14 +248,15 @@ export default function QuotationCreateScreen({ navigation }) {
         status: 'draft'
       };
 
-      // 3. Create Quotation
+      // 4. Create Quotation
       const { data } = await axiosInstance.post('/quotations', quotationPayload);
-      
+
       if (data.success) {
         Alert.alert('Success', 'Quotation created successfully');
-        navigation.goBack(); 
+        navigation.goBack();
       }
     } catch (error) {
+      // Only delete the customer if WE just created it (not a reused one)
       if (createdCustomerId) {
         try {
           await axiosInstance.delete(`/customers/${createdCustomerId}`);
@@ -196,140 +296,78 @@ export default function QuotationCreateScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         
         {/* Customer */}
+        <CustomerPickerModal visible={showPicker} onClose={() => setShowPicker(false)} onSelect={handleSelectCustomer} />
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Customer</Text>
-          <Text style={styles.sectionHint}>Contact & billing details are saved to the customer record.</Text>
+          <View style={styles.modeToggle}>
+            <TouchableOpacity style={[styles.modeBtn, customerMode === 'existing' && styles.modeBtnActive]} onPress={() => switchMode('existing')}>
+              <Users size={14} color={customerMode === 'existing' ? '#4f46e5' : '#94a3b8'} />
+              <Text style={[styles.modeBtnText, customerMode === 'existing' && styles.modeBtnTextActive]}>Existing Customer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.modeBtn, customerMode === 'custom' && styles.modeBtnActive]} onPress={() => switchMode('custom')}>
+              <UserPlus size={14} color={customerMode === 'custom' ? '#4f46e5' : '#94a3b8'} />
+              <Text style={[styles.modeBtnText, customerMode === 'custom' && styles.modeBtnTextActive]}>Custom / Walk-in</Text>
+            </TouchableOpacity>
+          </View>
 
+          {customerMode === 'existing' && (
+            <>
+              {selectedCustomer ? (
+                <View style={styles.selectedCustomerCard}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{selectedCustomer.name}</Text>
+                    {selectedCustomer.phone && <Text style={{ color: '#64748b' }}>{selectedCustomer.phone}</Text>}
+                  </View>
+                  <TouchableOpacity onPress={() => switchMode('existing')}><X size={20} color="#ef4444" /></TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.pickBtn} onPress={() => setShowPicker(true)}>
+                  <Search size={18} color="#4f46e5" />
+                  <Text style={styles.pickBtnText}>Search & select a customer</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
+
+          {customerMode === 'custom' && (
+            <>
           <Text style={styles.sectionLabel}>Primary contact</Text>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Name *</Text>
-            <TextInput
-              style={styles.input}
-              value={customerName}
-              onChangeText={setCustomerName}
-              placeholder="e.g. Jane Smith"
-            />
+            <TextInput style={styles.input} value={customerName} onChangeText={setCustomerName} placeholder="e.g. Jane Smith" />
           </View>
           <View style={styles.row}>
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
               <Text style={styles.label}>Phone *</Text>
-              <TextInput
-                style={styles.input}
-                value={customerPhone}
-                onChangeText={setCustomerPhone}
-                placeholder="+1 555-0123"
-                keyboardType="phone-pad"
-              />
+              <TextInput style={styles.input} value={customerPhone} onChangeText={setCustomerPhone} placeholder="+1 555-0123" keyboardType="phone-pad" />
             </View>
             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.label}>Alt phone</Text>
-              <TextInput
-                style={styles.input}
-                value={customerAltPhone}
-                onChangeText={setCustomerAltPhone}
-                placeholder="Optional"
-                keyboardType="phone-pad"
-              />
+              <Text style={styles.label}>Email (optional)</Text>
+              <TextInput style={styles.input} value={customerEmail} onChangeText={setCustomerEmail} placeholder="Leave blank if unknown" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
             </View>
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email (optional)</Text>
-            <TextInput
-              style={styles.input}
-              value={customerEmail}
-              onChangeText={setCustomerEmail}
-              placeholder="Leave blank if unknown"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
           </View>
 
           <Text style={styles.sectionLabel}>Company</Text>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Company name</Text>
-            <TextInput
-              style={styles.input}
-              value={customerCompany}
-              onChangeText={setCustomerCompany}
-              placeholder="e.g. Acme Corp"
-            />
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Customer type</Text>
-            <View style={styles.typeRow}>
-              <TouchableOpacity
-                style={[
-                  styles.typeChip,
-                  { marginRight: 8 },
-                  customerType === 'retail' && styles.typeChipActive,
-                ]}
-                onPress={() => setCustomerType('retail')}
-              >
-                <Text style={[styles.typeChipText, customerType === 'retail' && styles.typeChipTextActive]}>Retail</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.typeChip, customerType === 'wholesale' && styles.typeChipActive]}
-                onPress={() => setCustomerType('wholesale')}
-              >
-                <Text style={[styles.typeChipText, customerType === 'wholesale' && styles.typeChipTextActive]}>Wholesale</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Tax / VAT ID</Text>
-            <TextInput
-              style={styles.input}
-              value={customerTaxNumber}
-              onChangeText={setCustomerTaxNumber}
-              placeholder="Optional"
-              autoCapitalize="characters"
-            />
+            <Text style={styles.label}>Tax / VAT ID (Optional)</Text>
+            <TextInput style={styles.input} value={customerTaxNumber} onChangeText={setCustomerTaxNumber} placeholder="Optional" />
           </View>
 
           <Text style={styles.sectionLabel}>Address</Text>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Street</Text>
-            <TextInput
-              style={styles.input}
-              value={addrStreet}
-              onChangeText={setAddrStreet}
-              placeholder="Street address"
-            />
+            <TextInput style={styles.input} value={addrStreet} onChangeText={setAddrStreet} placeholder="Street address" />
           </View>
           <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>City</Text>
-              <TextInput style={styles.input} value={addrCity} onChangeText={setAddrCity} placeholder="City" />
-            </View>
-            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.label}>State / region</Text>
-              <TextInput style={styles.input} value={addrState} onChangeText={setAddrState} placeholder="State" />
-            </View>
+            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}><Text style={styles.label}>City</Text><TextInput style={styles.input} value={addrCity} onChangeText={setAddrCity} placeholder="City" /></View>
+            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}><Text style={styles.label}>State / region</Text><TextInput style={styles.input} value={addrState} onChangeText={setAddrState} placeholder="State" /></View>
           </View>
           <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Postal code</Text>
-              <TextInput style={styles.input} value={addrPostal} onChangeText={setAddrPostal} placeholder="ZIP" />
-            </View>
-            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.label}>Country</Text>
-              <TextInput style={styles.input} value={addrCountry} onChangeText={setAddrCountry} placeholder="USA" />
-            </View>
+            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}><Text style={styles.label}>Postal code</Text><TextInput style={styles.input} value={addrPostal} onChangeText={setAddrPostal} placeholder="ZIP" /></View>
+            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}><Text style={styles.label}>Country</Text><TextInput style={styles.input} value={addrCountry} onChangeText={setAddrCountry} placeholder="USA" /></View>
           </View>
-
-          <Text style={styles.sectionLabel}>Notes</Text>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Customer notes</Text>
-            <TextInput
-              style={[styles.input, styles.inputMultiline]}
-              value={customerNotes}
-              onChangeText={setCustomerNotes}
-              placeholder="Internal notes about this customer (optional)"
-              multiline
-              textAlignVertical="top"
-            />
-          </View>
+            </>
+          )}
         </View>
 
         {/* Settings */}
@@ -441,6 +479,19 @@ const styles = StyleSheet.create({
   saveBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#4f46e5', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
   saveBtnText: { color: '#fff', fontWeight: 'bold', marginLeft: 4 },
   scrollContent: { padding: 16, gap: 16 },
+  customerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderColor: '#f1f5f9' },
+  customerAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#e0e7ff', alignItems: 'center', justifyContent: 'center' },
+  customerAvatarText: { color: '#4f46e5', fontWeight: 'bold', fontSize: 16 },
+  customerRowName: { fontSize: 15, fontWeight: '600', color: '#1e293b' },
+  customerRowSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
+  modeToggle: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: 10, padding: 3, marginBottom: 16 },
+  modeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8 },
+  modeBtnActive: { backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 4, elevation: 2 },
+  modeBtnText: { fontSize: 13, fontWeight: '600', color: '#94a3b8' },
+  modeBtnTextActive: { color: '#4f46e5' },
+  pickBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1.5, borderColor: '#c7d2fe', borderStyle: 'dashed', borderRadius: 10, padding: 14, backgroundColor: '#f5f3ff' },
+  pickBtnText: { flex: 1, fontSize: 14, color: '#4f46e5', fontWeight: '600' },
+  selectedCustomerCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 10, padding: 12 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
