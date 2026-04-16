@@ -7,7 +7,9 @@ import {
   StyleSheet, 
   TouchableOpacity, 
   ActivityIndicator, 
-  Alert 
+  Alert,
+  Modal,
+  FlatList
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Plus, Trash2, CheckCircle, Search, X, Check, UserPlus, Users, ChevronDown, ChevronUp } from 'lucide-react-native';
